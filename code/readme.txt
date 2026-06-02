@@ -1,0 +1,6 @@
+注意事项:
+1.cubemx自动生成的文件不支持AC6编译,为了支持AC6加快编译速度,每次使用cube生成代码后,需要把根目录下ARM_CM4F文件夹内的两个文件复制到ARM_CM4F链接对应的文件夹..\Middlewares\Third_Party\FreeRTOS\Source\portable\RVDS\ARM_CM4F,如果代码移动链接失效,需要自己把文件手动复制到前面说的相对路径中
+2.cubemx生成的代码会把中文注释弄乱码,自己写的代码全部在User文件夹中
+3.MX_SDIO_SD_Init中改为hsd.Init.BusWide = SDIO_BUS_WIDE_1B;cube生成的默认为4B
+4.log口的波特率为921600
+

@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MapView</title>
+  <style>
+    html, body { height: 100%; width: 100%; margin: 0; padding: 0; background: #050b14; overflow: hidden; }
+    #map {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      position: relative;
+      border: 2px solid rgba(0, 255, 255, 0.65);
+      border-radius: 12px;
+      box-shadow:
+        0 0 18px rgba(0, 255, 255, 0.5),
+        0 0 36px rgba(120, 30, 255, 0.35),
+        inset 0 0 12px rgba(0, 200, 255, 0.35);
+      background: radial-gradient(circle at 20% 20%, rgba(0, 255, 255, 0.06), transparent 32%),
+                  radial-gradient(circle at 80% 10%, rgba(120, 30, 255, 0.08), transparent 30%),
+                  #0a1626;
+    }
+    /* 隐藏地图自带缩放控件 */
+    .amap-zoomcontrol, .amap-controlbar, .amap-maptypecontrol { display: none !important; }
+    .BMap_stdMpCtrl, .anchorBL { display: none !important; }
+    .leaflet-control-container { display: none !important; }
+    .amap-logo, .amap-copyright, .amap-scalecontrol, .amap-maptype, .amap-toolbar, .amap-control { display: none !important; }
+    #map .amap-ctrl, #map .amap-ctrl-bottom, #map .amap-ctrl-top, #map .amap-ctrl-left, #map .amap-ctrl-right,
+    #map .amap-zoom, #map .amap-zoomcontrol, #map .amap-controlbar, #map .amap-toolbar, #map .amap-scalecontrol,
+    #map .amap-copyright, #map .amap-logo {
+      display: none !important;
+    }
+    #ctrl-mask, #ctrl-mask-global { display: none; }
+  </style>
+  <script>
+    (function(){
+      function getQuery(){
+        var q = {};
+        var s = window.location.search.replace(/^\?/,'');
+        s.split('&').forEach(function(p){
+          if(!p) return; var a=p.split('='); q[decodeURIComponent(a[0])] = decodeURIComponent(a[1]||'');
+        });
+        return q;
+      }
+
+      // WGS84 <-> GCJ-02 and BD-09 helpers
+      var PI = Math.PI;
+      function outOfChina(lon, lat){
+        return (lon < 72.004 || lon > 137.8347) || (lat < 0.8293 || lat > 55.8271);
+      }
+      function transformLat(x, y){
+        var ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+        ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
+        ret += (20.0 * Math.sin(y * PI) + 40.0 * Math.sin(y / 3.0 * PI)) * 2.0 / 3.0;
+        ret += (160.0 * Math.sin(y / 12.0 * PI) + 320 * Math.sin(y * PI / 30.0)) * 2.0 / 3.0;
+        return ret;
+      }
+      function transformLon(x, y){
+        var ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+        ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
+        ret += (20.0 * Math.sin(x * PI) + 40.0 * Math.sin(x / 3.0 * PI)) * 2.0 / 3.0;
+        ret += (150.0 * Math.sin(x / 12.0 * PI) + 300.0 * Math.sin(x / 30.0 * PI)) * 2.0 / 3.0;
+        return ret;
+      }
+      function wgs84ToGcj02(lon, lat){
+        if(outOfChina(lon, lat)) return [lon, lat];
+        var dLat = transformLat(lon - 105.0, lat - 35.0);
+        var dLon = transformLon(lon - 105.0, lat - 35.0);
+        var radLat = lat / 180.0 * PI;
+        var magic = Math.sin(radLat);
+        magic = 1 - 0.00669342162296594323 * magic * magic;
+        var sqrtMagic = Math.sqrt(magic);
+        dLat = (dLat * 180.0) / ((6335552.717000426 * (1/Math.pow(1 - 0.00669342162296594323 * Math.sin(radLat) * Math.sin(radLat), 1.5))));
+        dLon = (dLon * 180.0) / (6378245.0 / sqrtMagic * Math.cos(radLat) * PI);
+        var mgLat = lat + dLat;
+        var mgLon = lon + dLon;
+        return [mgLon, mgLat];
+      }
+      function gcj02ToBd09(lon, lat){
+        var x = lon, y = lat;
+        var z = Math.sqrt(x * x + y * y) + 0.00002 * Math.sin(y * Math.PI * 3000.0 / 180.0);
+        var theta = Math.atan2(y, x) + 0.000003 * Math.cos(x * Math.PI * 3000.0 / 180.0);
+        var bd_lon = z * Math.cos(theta) + 0.0065;
+        var bd_lat = z * Math.sin(theta) + 0.006;
+        return [bd_lon, bd_lat];
+      }
+
+      var q = getQuery();
+      var provider = (q.provider || 'amap').toLowerCase();
+      var amapKey = q.amapKey || '';
+      var baiduAk = q.baiduAk || '';
+      // Default center: precise Changdang Lake point (can be overridden via query)
+      var centerLon = parseFloat(q.centerLon || '119.57160716701571');
+      var centerLat = parseFloat(q.centerLat || '31.68808736873601');
+
+      // Interface expected by WinForms: attach asap; implement later after map ready
+      window.addPoint = function(lon, lat) { if(window._addPointImpl) window._addPointImpl(lon, lat); };
+      window.clearTrack = function(){ if(window._clearTrackImpl) window._clearTrackImpl(); };
+      window.zoomIn = function(){
+        try{
+          if(window._provider === 'amap' && window._map){ var z = window._map.getZoom(); window._map.setZoom(Math.min(20, z+1)); }
+          else if(window._provider === 'baidu' && window._map){ window._map.zoomIn(); }
+          else if(window._map && window._map.zoomIn){ window._map.zoomIn(); }
+        }catch(e){}
+      };
+      window.zoomOut = function(){
+        try{
+          if(window._provider === 'amap' && window._map){ var z = window._map.getZoom(); window._map.setZoom(Math.max(3, z-1)); }
+          else if(window._provider === 'baidu' && window._map){ window._map.zoomOut(); }
+          else if(window._map && window._map.zoomOut){ window._map.zoomOut(); }
+        }catch(e){}
+      };
+
+      function initAMap(){
+        // Satellite + road labels for real imagery
+        var satellite = new AMap.TileLayer.Satellite();
+        var roadNet = new AMap.TileLayer.RoadNet();
+      var map = new AMap.Map('map', {
+        zoom: 7,
+        center: [centerLon, centerLat],
+        viewMode: '2D',
+        layers: [satellite, roadNet],
+        zooms: [3, 20]
+      });
+      window._map = map; window._provider = 'amap';
+        removeAllAmapControls();
+        // 强制移除内置控件
+        try {
+          setTimeout(function(){
+            var ctn = map.getContainer && map.getContainer();
+            if(ctn){
+              ctn.querySelectorAll('div[class*=control],div[class*=toolbar],div[class*=zoom]').forEach(function(n){ n.style.display='none'; });
+            }
+          }, 50);
+        } catch(e){}
+        var polyline = new AMap.Polyline({ path: [], strokeColor: '#00FFFF', strokeWeight: 3, showDir: false });
+        map.add(polyline);
+        var head = new AMap.CircleMarker({ center: [centerLon,centerLat], radius: 4, strokeColor: '#FF00FF', strokeWeight: 2 });
+        map.add(head);
+        // No range circle; only current position marker
+        var count = 0;
+        map.on('zoomend', function(){ var z = map.getZoom(); if (z > 20) { map.setZoom(20); } });
+        window._clearTrackImpl = function(){ polyline.setPath([]); };
+        window._addPointImpl = function(lon, lat){
+          var p = wgs84ToGcj02(lon, lat);
+          polyline.setPath(polyline.getPath().concat([ p ]));
+          head.setCenter(p);
+          if(polyline.getPath().length === 1){ map.setZoomAndCenter(20, p); }
+          if(++count % 100 === 0){ map.setFitView([polyline]); }
+        };
+        // 清理残留控件（再次兜底）
+        try {
+          setTimeout(function(){
+            var ctn = map.getContainer && map.getContainer();
+            if(ctn){
+              ctn.querySelectorAll('div').forEach(function(n){
+                var cls = n.className || '';
+                if(/control|toolbar|zoom|copyright|logo|scale|maptype|anchor/i.test(cls)){ n.style.display='none'; }
+              });
+            }
+          }, 200);
+        } catch(e){}
+
+        try{
+          var ctn = map.getContainer && map.getContainer();
+          var hideControls = function(target){
+            if(!target) return;
+            target.querySelectorAll('div').forEach(function(n){
+              var cls = (n.className || '').toLowerCase();
+              var txt = (n.innerText || '').replace(/\s+/g,'');
+              if(cls.indexOf('control')>=0 || cls.indexOf('toolbar')>=0 || cls.indexOf('zoom')>=0 || cls.indexOf('logo')>=0 || cls.indexOf('copyright')>=0 || cls.indexOf('scale')>=0 || cls.indexOf('maptype')>=0 || cls.indexOf('ctrl')>=0 || txt.indexOf('高德')>=0 || txt.toLowerCase().indexOf('amap')>=0){
+                n.style.display = 'none';
+              }
+            });
+          };
+          hideControls(ctn);
+          var obs = new MutationObserver(function(mutations){
+            mutations.forEach(function(m){
+              if(m.addedNodes){
+                m.addedNodes.forEach(function(node){
+                  if(node.nodeType === 1){
+                    hideControls(node);
+                  }
+                });
+              }
+            });
+          });
+          obs.observe(ctn, { childList: true, subtree: true });
+
+          // 兜底定时多次清理（避免延迟加载的控件）
+          var times = 0;
+          var timer = setInterval(function(){
+            hideControls(ctn);
+            removeAllAmapControls();
+            if(++times >= 20) clearInterval(timer);
+          }, 300);
+        }catch(e){}
+      }
+
+      function initBMap(){
+        var map = new BMap.Map('map');
+        map.centerAndZoom(new BMap.Point(centerLon, centerLat), 8);
+        map.enableScrollWheelZoom(true);
+        window._map = map; window._provider = 'baidu';
+        // Satellite imagery
+        if (typeof BMAP_SATELLITE_MAP !== 'undefined') {
+          map.setMapType(BMAP_SATELLITE_MAP);
+        }
+        map.addEventListener('zoomend', function(){ var z = map.getZoom(); if (z > 19) { map.setZoom(19); } });
+        var pts = [];
+        var polyline = new BMap.Polyline(pts, { strokeColor:'#00FFFF', strokeWeight:3, strokeOpacity:1 });
+        map.addOverlay(polyline);
+        var head = new BMap.Circle(new BMap.Point(centerLon,centerLat), 25, { strokeColor:'#FF00FF', strokeWeight:2 });
+        map.addOverlay(head);
+        var count = 0;
+        window._clearTrackImpl = function(){ pts.length = 0; polyline.setPath(pts); };
+        window._addPointImpl = function(lon, lat){
+          var gcj = wgs84ToGcj02(lon, lat);
+          var bd = gcj02ToBd09(gcj[0], gcj[1]);
+          var p = new BMap.Point(bd[0], bd[1]);
+          pts.push(p);
+          polyline.setPath(pts);
+          head.setCenter(p);
+          if(pts.length === 1){ map.centerAndZoom(p, 19); }
+          if(++count % 100 === 0){ map.setViewport(pts); }
+        };
+        try{
+          setTimeout(function(){
+            var ctn = map.getContainer && map.getContainer();
+            if(ctn){
+              ctn.querySelectorAll('div').forEach(function(n){
+                var cls = n.className || '';
+                if(/control|zoom|anchor/i.test(cls)){ n.style.display='none'; }
+              });
+            }
+          }, 80);
+        }catch(e){}
+      }
+
+      function boot(){
+        if(provider === 'amap' && amapKey){
+          var s = document.createElement('script');
+          s.src = 'https://webapi.amap.com/maps?v=2.0&key=' + encodeURIComponent(amapKey);
+          s.onload = initAMap;
+          document.head.appendChild(s);
+        } else if(provider === 'baidu' && baiduAk){
+          var s2 = document.createElement('script');
+          s2.src = 'https://api.map.baidu.com/api?v=3.0&ak=' + encodeURIComponent(baiduAk) + '&callback=__initBaidu';
+          window.__initBaidu = initBMap;
+          document.head.appendChild(s2);
+        } else {
+          // Fallback: minimal OSM via Leaflet (CDN)
+          var lc = document.createElement('link'); lc.rel='stylesheet'; lc.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+          var ls = document.createElement('script'); ls.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+          document.head.appendChild(lc);
+          ls.onload = function(){
+            var map = L.map('map', { zoomControl: false }).setView([centerLat,centerLon], 7);
+            // Esri World Imagery as satellite fallback
+            L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+              maxZoom: 22,
+              maxNativeZoom: 18,
+              // show blank tile instead of provider error banner when over-zoomed
+              errorTileUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==',
+              attribution: 'Tiles \u00a9 Esri'
+            }).addTo(map);
+            window._map = map; window._provider = 'leaflet';
+            map.on('zoomend', function(){ var z = map.getZoom(); if (z > 19) { map.setZoom(19); } });
+            var latlngs = [];
+            var line = L.polyline(latlngs, {color:'#00FFFF', weight:3}).addTo(map);
+            var head = L.circleMarker([centerLat,centerLon], {radius:4, color:'#FF00FF'}).addTo(map);
+            var count=0;
+            window._clearTrackImpl = function(){ latlngs.length=0; line.setLatLngs(latlngs); };
+            window._addPointImpl = function(lon, lat){
+              var p = [lat, lon];
+              latlngs.push(p);
+              line.setLatLngs(latlngs);
+              head.setLatLng(p);
+              if(latlngs.length===1){ map.setView(p, 19); }
+              if(++count % 100 === 0){ map.fitBounds(line.getBounds(), {padding:[20,20]}); }
+            };
+            try{ map.zoomControl && map.zoomControl.remove(); }catch(e){}
+          };
+          document.head.appendChild(ls);
+        }
+      }
+
+      document.addEventListener('DOMContentLoaded', boot);
+    })();
+
+    function removeAllAmapControls(){
+      try{
+        var selectors = [
+          '.amap-ctrl','.amap-control','.amap-controlbar','.amap-zoom','.amap-zoomcontrol',
+          '.amap-toolbar','.amap-scalecontrol','.amap-copyright','.amap-logo','.amap-maptype',
+          '.amap-ui-control'
+        ];
+        selectors.forEach(function(sel){
+          document.querySelectorAll(sel).forEach(function(n){ n.style.display='none'; n.remove(); });
+        });
+        document.querySelectorAll('div').forEach(function(n){
+          var cls = (n.className||'').toLowerCase();
+          var txt = (n.innerText||'').replace(/\s+/g,'').toLowerCase();
+          if(cls.indexOf('amap-')>=0 && (cls.indexOf('control')>=0 || cls.indexOf('zoom')>=0 || cls.indexOf('toolbar')>=0 || cls.indexOf('logo')>=0 || txt.indexOf('amap')>=0 || txt.indexOf('高德')>=0)){
+            n.style.display='none'; if(n.parentNode) n.parentNode.removeChild(n);
+          }
+        });
+      }catch(e){}
+    }
+
+    var bodyObserver = new MutationObserver(function(mutations){
+      mutations.forEach(function(m){
+        if(m.addedNodes){
+          m.addedNodes.forEach(function(node){
+            if(node.nodeType === 1){
+              removeAllAmapControls();
+            }
+          });
+        }
+      });
+    });
+    try { bodyObserver.observe(document.body, { childList:true, subtree:true }); } catch(e){}
+  </script>
+</head>
+<body>
+  <div id="map">
+    <div id="ctrl-mask"></div>
+  </div>
+</body>
+</html>

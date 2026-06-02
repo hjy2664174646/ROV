@@ -1,0 +1,69 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.vs/
+
+# Git metadata backups for old nested repositories
+.git_*_backup/
+**/.git_*_backup/
+
+# Visual Studio / .NET build output
+bin/
+obj/
+Debug/
+Release/
+*.user
+*.suo
+*.pdb
+*.ilk
+*.exe
+*.dll
+*.cache
+*.log
+
+# STM32 / Keil build output
+code/MDK-ARM/Objects/
+code/MDK-ARM/Listings/
+code/MDK-ARM/*.uvguix.*
+code/MDK-ARM/*.scvd
+*.axf
+*.hex
+*.map
+*.lst
+*.o
+*.d
+
+# Python / Ultralytics runtime output
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+runs/
+datasets/
+
+# RKNN / CMake build output
+ultralytics-main/014/rknn_yolov8_demo/build/
+ultralytics-main/014/rknn_yolov8_demo/install/
+ultralytics-main/014/rknn_yolov8_demo/aarch64/
+ultralytics-main/014/3rdparty/opencv/OpenCV-android-sdk/
+
+# Large model artifacts, use Git LFS when these need to be published
+*.pt
+*.pth
+*.onnx
+*.rknn
+*.engine
+*.tflite
+*.ncnn
+
+# Archives and temporary packages
+*.zip
+*.7z
+*.tar
+*.tar.gz
+*.rar
