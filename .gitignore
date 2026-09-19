@@ -67,3 +67,8 @@ ultralytics-main/014/3rdparty/opencv/OpenCV-android-sdk/
 *.tar
 *.tar.gz
 *.rar
+
+# SolidWorks temporary files
+solidworks/**/~$*
+solidworks/**/*.err
+solidworks/**/*.zip

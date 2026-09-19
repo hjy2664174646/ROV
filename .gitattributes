@@ -1,0 +1,6 @@
+solidworks/**/*.STEP filter=lfs diff=lfs merge=lfs -text
+solidworks/**/*.STL filter=lfs diff=lfs merge=lfs -text
+solidworks/**/*.3mf filter=lfs diff=lfs merge=lfs -text
+solidworks/**/*.zip filter=lfs diff=lfs merge=lfs -text
+solidworks/**/*.SLDASM filter=lfs diff=lfs merge=lfs -text
+solidworks/**/*.SLDPRT filter=lfs diff=lfs merge=lfs -text
